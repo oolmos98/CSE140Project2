@@ -79,6 +79,54 @@ void init_lru(int assoc_index, int block_index)
               if we == WRITE, then data used to
               update Cache/DRAM
 */
+
+//Helper Functions
+
+int lruBlock(int index)
+{
+  int minimum = 0;
+  for (int i = 0; i < assoc; i++)
+  {
+    (cache[index].block[i].valid == INVALID) ? i : ((cache[index].block[i].lru.value < cache[index].block[minimum].lru.value) ? minimum = i : 0);
+  }
+  return minimum;
+}
+int lfuBlock(int index)
+{
+  int minimum = 0;
+  for (int i = 0; i < assoc; i++)
+  {
+    (cache[index].block[i].valid == INVALID) ? i : ((cache[index].block[i].accessCount < cache[index].block[minimum].accessCount) ? minimum = i : 0);
+  }
+  return minimum;
+}
+
+void lfuplusplus(int sindex, int bindex)
+{
+  cache[index].block[bindex].accessCount++;
+  // Handle overflow
+  /*if (cache[set_index].block[block_index].accessCount - 1 > cache[set_index].block[block_index].accessCount)
+  {
+    cache[set_index].block[block_index].accessCount--;
+    for (int i = 0; i < assoc; ++i)
+    {
+      cache[set_index].block[block_index].accessCount /= 2;
+    }
+  }*/
+}
+void increment_lru(int set_index, int block_index)
+{
+  int min_lru_val;
+  cache[set_index].block[block_index].lru.value = ++lru_count[set_index];
+  if (lru_count[set_index] - 1 > lru_count[set_index])
+  {
+    min_lru_val = cache[set_index].block[find_lru_block(set_index)].lru.value;
+    for (int i = 0; i < assoc; ++i)
+    {
+      cache[set_index].block[i].lru.value += (0xFFFFFFFF - min_lru_val);
+    }
+  }
+}
 void accessMemory(address addr, word *data, WriteEnable we)
 {
   /* Declare variables here */
@@ -87,14 +135,18 @@ void accessMemory(address addr, word *data, WriteEnable we)
       offsetBits,       //Where in block.
       tag, index, offset;
   bool hit = false;
+
+  TransferUnit transfer_unit = 0;
+
   /* handle the case of no cache at all - leave this in */
 
-    if (assoc == 0)
+  if (assoc == 0)
   {
     accessDRAM(addr, (byte *)data, WORD_SIZE, we);
     return;
   }
   ////////////////////////////////
+  transfer_unit = uint_log2(block_size);
   indexBits = uint_log2(set_count);
   offsetBits = uint_log2(block_size);
   tagBits = 32 - index - offset;
@@ -102,6 +154,7 @@ void accessMemory(address addr, word *data, WriteEnable we)
   index = (addr << tagBits) >> (tagBits + offsetBits);
   offset = (addr << (tagBits + indexBits)) >> (tagBits + indexBits);
   tag = (addr >> (offsetBits + indexBits));
+
   int accessedBlock;
   for (int i = 0; i < assoc; i++)
   {
@@ -134,28 +187,42 @@ void accessMemory(address addr, word *data, WriteEnable we)
     }
     if (policy == LRU)
     {
+      accessedBlock = lruBlock(index);
+      highlight_block(index, accessedBlock);
+      highlight_offset(index, accessedBlock, offset, MISS);
+      if (memory_sync_policy == WRITE_BACK && cache[index].block[accessedBlock].dirty)
+      {
+        int addr2 = (cache[index].block[accessedBlock].tag << (indexBits + offsetBits)) + (index << offsetBits);
+        accessDRAM(addr2, cache[index].block[accessedBlock].data, transfer_unit, WRITE);
+        accessDRAM(addr, cache[index].block[accessedBlock].data, transfer_unit, READ);
+      }
     }
     else if (policy == LFU)
     {
-    }
-    else
-    { // RANDOM
+      accessedBlock = lfuBlock(index);
+      highlight_block(index, accessedBlock);
+      highlight_offset(index, accessedBlock, offset, MISS);
+      cache[index].block[accessedBlock].accessCount = 0;
+      if (memory_sync_policy == WRITE_BACK)
+        cache[index].block[accessedBlock].dirty = VIRGIN;
     }
   }
   else
-  {
-
-    if (we == READ)
-    {
-      //Return Info to cpu.
-    }
-    else if (we == WRITE)
-    {
-      //if we == WRITE, then data used to
-      //update Cache / DRAM
-    }
+  { // RANDOM
   }
-  /*
+}
+
+if (we == READ)
+{
+  //Return Info to cpu.
+}
+else if (we == WRITE)
+{
+  //if we == WRITE, then data used to
+  //update Cache / DRAM
+}
+
+/*
   You need to read/write between memory (via the accessDRAM() function) and
   the cache (via the cache[] global structure defined in tips.h)
 
@@ -182,12 +249,12 @@ void accessMemory(address addr, word *data, WriteEnable we)
   functions can be found in tips.h
   */
 
-  /* Start adding code here */
+/* Start adding code here */
 
-  /* This call to accessDRAM occurs when you modify any of the
+/* This call to accessDRAM occurs when you modify any of the
      cache parameters. It is provided as a stop gap solution.
      At some point, ONCE YOU HAVE MORE OF YOUR CACHELOGIC IN PLACE,
      THIS LINE SHOULD BE REMOVED.
   */
-  accessDRAM(addr, (byte *)data, WORD_SIZE, we);
+accessDRAM(addr, (byte *)data, WORD_SIZE, we);
 }
