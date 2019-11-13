@@ -3,7 +3,6 @@
 
 /* Global variable for tracking the least recently used block
 // Assigning a varible for least recently used set */
-unsigned int lru_count[MAX_SETS];
 
 /* The following two functions are defined in util.c */
 
@@ -69,46 +68,34 @@ void init_lfu(int assoc_index, int block_index)
 void init_lru(int assoc_index, int block_index)
 {
     cache[assoc_index].block[block_index].lru.value = 0;
-
-    lru_count[assoc_index] = 0; // We are basically setting LRU to 0
 }
 
-//  This function find the least recently used block
+//  This function find the last recently used block
 
 int findLRU(int index)
 {
-    int minimum = 0;
+    int max = 0, block = 0;
     for (int i = 0; i < assoc; i++)
     {
-        if (cache[index].block[i].valid == INVALID)
-            return i;
-        if (cache[index].block[i].lru.value < cache[index].block[minimum].lru.value)
-            minimum = i;
-    }
-
-    return minimum;
-}
-
-void incrmntLRU(int sindex, int bindex)
-{
-    int minValLRU;
-    cache[sindex].block[bindex].lru.value = ++lru_count[sindex];
-    if (lru_count[sindex] - 1 > lru_count[sindex])
-    {
-        minValLRU = cache[sindex].block[findLRU(sindex)].lru.value;
-
-        int i = 0;
-        while (i < assoc)
+        if (cache[index].block[i].lru.value > max)
         {
-            cache[sindex].block[i].lru.value += (0xFFFFFFFF - minValLRU);
-            ++i;
+            max = cache[index].block[i].lru.value;
+            block = i;
         }
     }
+    return block;
 }
 
-// Basically what we are doing here is going through each set of the cache box and comparing it to the past set in order to determine which one is least frequently used.
-//Function use LFU counter to increment LFU value of accessed block. If overflow, LFU value shift to maintain LRU counter.
+void incLRU(int sindex, int bindex)
+{
+    for (int i = 0; i < assoc; i++)
+    {
+        if (cache[sindex].block[i].valid == VALID)
+            cache[sindex].block[i].lru.value++;
+    }
 
+    cache[sindex].block[bindex].lru.value = 1;
+}
 /*
   This is the primary function you are filling out,
   You are free to add helper functions if you need them
@@ -123,7 +110,7 @@ void accessMemory(address addr, word *data, WriteEnable we)
         offsetBits,       //Where in block.
         tag, index, offset;
     bool hit = false;
-    unsigned int addr2;
+    unsigned int addr2; //Used for Writeback
     TransferUnit transfer_unit = uint_log2(block_size);
 
     /* handle the case of no cache at all - leave this in */
@@ -157,34 +144,36 @@ void accessMemory(address addr, word *data, WriteEnable we)
 
     if (hit == false) //Miss
     {
+        //LFU not implemented, Only LRU/Random
 
+        //LRU Case
         if (policy == LRU)
         {
             accessedBlock = findLRU(index);
-            incrmntLRU(index, accessedBlock);
+            incLRU(index, accessedBlock);
         }
-        else
+        else //Random Case
             accessedBlock = randomint(assoc);
 
-        highlight_block(index, accessedBlock);
-        highlight_offset(index, accessedBlock, offset, MISS);
-
         //WriteBack checks if dirty before copying.
-        if (memory_sync_policy == WRITE_BACK && cache[index].block[accessedBlock].dirty)
+        if (memory_sync_policy == WRITE_BACK)
         {
-            //Finding correct address to
-            addr2 = (cache[index].block[accessedBlock].tag << (indexBits + offsetBits)) + (index << offsetBits);
-            accessDRAM(addr2, cache[index].block[accessedBlock].data, transfer_unit, WRITE);
+
+            if (cache[index].block[accessedBlock].dirty)
+            {
+                //Finding correct address to copy
+                addr2 = (cache[index].block[accessedBlock].tag << (indexBits + offsetBits)) + (index << offsetBits);
+                accessDRAM(addr2, cache[index].block[accessedBlock].data, transfer_unit, WRITE);
+                cache[index].block[accessedBlock].dirty = VIRGIN;
+            }
+            cache[index].block[accessedBlock].dirty = VIRGIN;
         }
 
         accessDRAM(addr, cache[index].block[accessedBlock].data, transfer_unit, READ);
         cache[index].block[accessedBlock].tag = tag;
         cache[index].block[accessedBlock].valid = VALID;
-
-        if (memory_sync_policy == WRITE_BACK)
-        {
-            cache[index].block[accessedBlock].dirty = VIRGIN;
-        }
+        highlight_block(index, accessedBlock);
+        highlight_offset(index, accessedBlock, offset, MISS);
     }
 
     switch (we)
