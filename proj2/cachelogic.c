@@ -70,11 +70,16 @@ void init_lru(int assoc_index, int block_index)
     cache[assoc_index].block[block_index].lru.value = 0;
 }
 
-//  This function find the last recently used block
-
+/* 
+This function will find which block in the given set hasnt been used the longest
+ */
 int findLRU(int index)
 {
+    //Index is which SET in the cache
     int max = 0, block = 0;
+    //max is used to determine which value hasnt been used the longest.
+    //block is used to hold the index of which block in cache to return.
+
     for (int i = 0; i < assoc; i++)
     {
         if (cache[index].block[i].lru.value > max)
@@ -85,107 +90,129 @@ int findLRU(int index)
     }
     return block;
 }
-
+/* 
+This function will incrament the LRU values in the given set/block.
+ */
 void incLRU(int sindex, int bindex)
 {
+    //sindex is the SETS index.
+    //bindex is the BLOCKS index
     for (int i = 0; i < assoc; i++)
     {
+        //If valid, inc LRU. else data is not valid to use.
         if (cache[sindex].block[i].valid == VALID)
             cache[sindex].block[i].lru.value++;
     }
-
+    //Actual set and block used is set to 1.
     cache[sindex].block[bindex].lru.value = 1;
 }
-/*
-  This is the primary function you are filling out,
-  You are free to add helper functions if you need them
 
- 
+/*
+The main function 
 */
 void accessMemory(address addr, word *data, WriteEnable we)
 {
-
     unsigned int tagBits, //Matching Tags
         indexBits,        //Which set
         offsetBits,       //Where in block.
-        tag, index, offset;
-    bool hit = false;
-    unsigned int addr2; //Used for Writeback
-    TransferUnit transfer_unit = uint_log2(block_size);
+        tag,             //Actual tag value.
+        index,           //Actual index/set value.
+        offset;          //Actual offset value.
+    bool hit = false; //Verify HIT or MISS.
+    unsigned int addr2;                                 //Used for Writeback policy
+    TransferUnit transfer_unit = uint_log2(block_size); //Used to determine size for AccessDRAM.
 
     /* handle the case of no cache at all - leave this in */
-
     if (assoc == 0)
     {
         accessDRAM(addr, (byte *)data, WORD_SIZE, we);
         return;
     }
-    ////////////////////////////////
 
+    //Calculates #bits for each section
     indexBits = uint_log2(set_count);
     offsetBits = uint_log2(block_size);
     tagBits = 32 - indexBits - offsetBits;
 
+    //Actual values for each section utilizing the above calculations
     index = (addr << tagBits) >> (tagBits + offsetBits);
     offset = (addr << (tagBits + indexBits)) >> (tagBits + indexBits);
     tag = (addr >> (offsetBits + indexBits));
 
+    //Need to determine which block from the index is available/valid
+    //if not, miss
     int accessedBlock;
     for (int i = 0; i < assoc; i++)
     {
         if (cache[index].block[i].tag == tag && cache[index].block[i].valid)
         {
-            highlight_offset(index, i, offset, HIT);
+            //Hit always false until here.
             hit = true;
+            //The verified block in the index to work!
             accessedBlock = i;
             break;
         }
     }
-
+    if(hit){
+        //If hit, highlight green
+        highlight_offset(index, accessedBlock, offset, HIT);
+    }
     if (hit == false) //Miss
     {
         //LFU not implemented, Only LRU/Random
 
         //LRU Case
+        //Since a miss, need to find the block in the index that matches the LRU case.
         if (policy == LRU)
         {
             accessedBlock = findLRU(index);
+            //Must Increment LRU in the index.
             incLRU(index, accessedBlock);
         }
         else //Random Case
             accessedBlock = randomint(assoc);
 
-        //WriteBack checks if dirty before copying.
+        //WriteBack Policy.
         if (memory_sync_policy == WRITE_BACK)
         {
-
+            //Confirm the dirty bit.
             if (cache[index].block[accessedBlock].dirty)
             {
-                //Finding correct address to copy
+                //Finding correct address to copy cache to memory.
                 addr2 = (cache[index].block[accessedBlock].tag << (indexBits + offsetBits)) + (index << offsetBits);
+                //Accessing WRITE to memory.
                 accessDRAM(addr2, cache[index].block[accessedBlock].data, transfer_unit, WRITE);
+                //After, block in index is not dirty.
                 cache[index].block[accessedBlock].dirty = VIRGIN;
             }
             cache[index].block[accessedBlock].dirty = VIRGIN;
         }
-
+        ///Now the cache and memory are in sync, we can read the memory
         accessDRAM(addr, cache[index].block[accessedBlock].data, transfer_unit, READ);
+        //update the cache values.
         cache[index].block[accessedBlock].tag = tag;
         cache[index].block[accessedBlock].valid = VALID;
+        //For tips to highlight for miss.
         highlight_block(index, accessedBlock);
         highlight_offset(index, accessedBlock, offset, MISS);
     }
-
+    //After the above switch case, now we have the correct values to access the memory and cache
+    //and do the appropriate functions.
     switch (we)
     {
+        //Reading Case
     case READ:
     {
         memcpy(data, cache[index].block[accessedBlock].data + offset, 4);
         break;
     }
+    //Writing Case
     case WRITE:
     {
         memcpy(cache[index].block[accessedBlock].data + offset, data, 4);
+
+        //WriteThrough keeps the main memory Up-to-Date
+        //WriteBack is either cache or memory that has up-to-date data, hence the DIRTY bit.
         if (memory_sync_policy == WRITE_THROUGH)
             accessDRAM(addr2, cache[index].block[accessedBlock].data, transfer_unit, WRITE);
         else
