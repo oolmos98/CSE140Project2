@@ -112,13 +112,13 @@ The main function
 */
 void accessMemory(address addr, word *data, WriteEnable we)
 {
-    unsigned int tagBits, //Matching Tags
-        indexBits,        //Which set
-        offsetBits,       //Where in block.
-        tag,             //Actual tag value.
-        index,           //Actual index/set value.
-        offset;          //Actual offset value.
-    bool hit = false; //Verify HIT or MISS.
+    unsigned int tagBits,                               //Matching Tags
+        indexBits,                                      //Which set
+        offsetBits,                                     //Where in block.
+        tag,                                            //Actual tag value.
+        index,                                          //Actual index/set value.
+        offset;                                         //Actual offset value.
+    bool hit = false;                                   //Verify HIT or MISS.
     unsigned int addr2;                                 //Used for Writeback policy
     TransferUnit transfer_unit = uint_log2(block_size); //Used to determine size for AccessDRAM.
 
@@ -153,7 +153,8 @@ void accessMemory(address addr, word *data, WriteEnable we)
             break;
         }
     }
-    if(hit){
+    if (hit)
+    {
         //If hit, highlight green
         highlight_offset(index, accessedBlock, offset, HIT);
     }
@@ -182,12 +183,11 @@ void accessMemory(address addr, word *data, WriteEnable we)
                 addr2 = (cache[index].block[accessedBlock].tag << (indexBits + offsetBits)) + (index << offsetBits);
                 //Accessing WRITE to memory.
                 accessDRAM(addr2, cache[index].block[accessedBlock].data, transfer_unit, WRITE);
-                //After, block in index is not dirty.
-                cache[index].block[accessedBlock].dirty = VIRGIN;
             }
+            //Block isnt dirty, so maintain Virgin
             cache[index].block[accessedBlock].dirty = VIRGIN;
         }
-        ///Now the cache and memory are in sync, we can read the memory
+        //Now the cache and memory are in sync, we can read the memory.
         accessDRAM(addr, cache[index].block[accessedBlock].data, transfer_unit, READ);
         //update the cache values.
         cache[index].block[accessedBlock].tag = tag;
