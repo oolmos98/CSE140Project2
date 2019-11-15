@@ -159,8 +159,11 @@ void accessMemory(address addr, word *data, WriteEnable we)
     }
     if (hit == false) //Miss
     {
+		/*
         //LFU not implemented, Only LRU/Random
+		if (policy == LFU) {
 
+		}
         //LRU Case
         //Since a miss, need to find the block in the index that matches the LRU case.
         if (policy == LRU)
@@ -171,6 +174,33 @@ void accessMemory(address addr, word *data, WriteEnable we)
         }
         else //Random Case
             accessedBlock = randomint(assoc);
+		*/
+
+		switch (policy) {
+		case LFU:
+			// Least Frequently used technically finding the min num of access
+			int min = 0, minIndex = -1;
+			for (int i = 0; i < assoc; i++) {
+				if (cache[i].block[i].accessCount < min) {
+					min = cache[i].block[i].accessCount;
+					minIndex = i;
+				}
+			}
+			accessBlock = minIndex;
+
+			// Increase the access count of the accessed blci
+
+			break;
+
+		case LRU:
+			accessedBlock = findLRU(index);
+			incLRU(index, accessedBlock);
+			break;
+		case RANDOM:
+			accessedBlock = randomint(assoc);
+			break;
+		}
+
 
         //WriteBack Policy.
         if (memory_sync_policy == WRITE_BACK)
@@ -201,22 +231,22 @@ void accessMemory(address addr, word *data, WriteEnable we)
     switch (we)
     {
         //Reading Case
-    case READ:
-    {
-        memcpy(data, cache[index].block[accessedBlock].data + offset, 4);
-        break;
-    }
-    //Writing Case
-    case WRITE:
-    {
-        memcpy(cache[index].block[accessedBlock].data + offset, data, 4);
+		case READ:
+		{
+			memcpy(data, cache[index].block[accessedBlock].data + offset, 4);
+			break;
+		}
+		//Writing Case
+		case WRITE:
+		{
+			memcpy(cache[index].block[accessedBlock].data + offset, data, 4);
 
-        //WriteThrough keeps the main memory Up-to-Date
-        //WriteBack is either cache or memory that has up-to-date data, hence the DIRTY bit.
-        if (memory_sync_policy == WRITE_THROUGH)
-            accessDRAM(addr2, cache[index].block[accessedBlock].data, transfer_unit, WRITE);
-        else
-            cache[index].block[accessedBlock].dirty = DIRTY;
-    }
+			//WriteThrough keeps the main memory Up-to-Date
+			//WriteBack is either cache or memory that has up-to-date data, hence the DIRTY bit.
+			if (memory_sync_policy == WRITE_THROUGH)
+				accessDRAM(addr2, cache[index].block[accessedBlock].data, transfer_unit, WRITE);
+			else
+				cache[index].block[accessedBlock].dirty = DIRTY;
+		}
     }
 }
